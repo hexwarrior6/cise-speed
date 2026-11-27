@@ -1,35 +1,26 @@
-import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Request } from 'express';
+import { UserService } from './user.service';
+import { UserRole } from './user.schema';
+
+export interface AuthenticatedUser { sub: string; email: string; username: string; role: UserRole; }
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private jwtService: JwtService) {}
-
+  constructor(private jwtService: JwtService, private users: UserService) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<Request>();
-    const token = this.extractTokenFromHeader(request);
-
-    if (!token) {
-      return false;
-    }
-
-    try {
-      const payload = await this.jwtService.verifyAsync(token, {
-        secret: process.env.JWT_SECRET || 'default_secret',
-      });
-
-      // Attach the user info to the request object
-      request['user'] = payload;
-      return true;
-    } catch (error) {
-      console.error('JWT verification error:', error);
-      return false;
-    }
-  }
-
-  private extractTokenFromHeader(request: Request): string | undefined {
+    const request = context.switchToHttp().getRequest();
     const [type, token] = request.headers.authorization?.split(' ') ?? [];
-    return type === 'Bearer' ? token : undefined;
+    if (type !== 'Bearer' || !token) throw new UnauthorizedException('Authentication required');
+    try {
+      const payload = await this.jwtService.verifyAsync(token, { algorithms: ['HS256'] });
+      if (typeof payload.sub !== 'string') throw new UnauthorizedException();
+      const user = await this.users.findOne(payload.sub);
+      if (!user?.isActive) throw new UnauthorizedException();
+      request.user = { sub: user._id.toString(), email: user.email, username: user.username, role: user.role } satisfies AuthenticatedUser;
+      return true;
+    } catch {
+      throw new UnauthorizedException('Invalid or expired session');
+    }
   }
 }

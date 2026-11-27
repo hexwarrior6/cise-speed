@@ -1,132 +1,45 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Post,
-  Put,
-  HttpException,
-  HttpStatus,
-  UseGuards,
-  Param,
-  Req,
-} from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, UseGuards, Param, Req, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { UserService } from './user.service';
-import { CreateUserDto, LoginUserDto, LoginResponseDto } from './user.dto';
-import { AdminGuard } from './admin.guard';
+import { CreateUserDto, LoginUserDto, LoginResponseDto, UpdateRoleDto } from './user.dto';
+import { JwtAuthGuard, AuthenticatedUser } from './jwt-auth.guard';
+import { Roles, RolesGuard } from './roles.guard';
+import { UserRole } from './user.schema';
 
 @Controller('api/users')
 export class UserController {
   constructor(private readonly userService: UserService) {}
-
-  // Registration endpoint - all users register as Submitter by default
   @Post('/register')
-  async register(@Body() createUserDto: CreateUserDto): Promise<any> {
-    try {
-      const user = await this.userService.register(createUserDto);
-      // Don't return the password in the response
-      const { password, ...result } = user.toObject();
-      return {
-        message: 'User registered successfully',
-        user: {
-          ...result,
-          id: user._id.toString(), // Ensure id field is properly mapped
-        },
-      };
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.BAD_REQUEST,
-          error: error.message || 'Unable to register user',
-        },
-        HttpStatus.BAD_REQUEST,
-        { cause: error },
-      );
-    }
+  async register(@Body() dto: CreateUserDto) {
+    const user = await this.userService.register(dto);
+    const { password, ...result } = user.toObject();
+    return { message: 'User registered successfully', user: { ...result, id: user._id.toString() } };
   }
-
-  // Login endpoint
   @Post('/login')
-  async login(@Body() loginUserDto: LoginUserDto): Promise<LoginResponseDto> {
-    try {
-      return await this.userService.login(loginUserDto);
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.UNAUTHORIZED,
-          error: error.message || 'Invalid credentials',
-        },
-        HttpStatus.UNAUTHORIZED,
-        { cause: error },
-      );
-    }
+  login(@Body() dto: LoginUserDto): Promise<LoginResponseDto> { return this.userService.login(dto); }
+  @Get('/me')
+  @UseGuards(JwtAuthGuard)
+  me(@Req() req: { user: AuthenticatedUser }) {
+    const { sub, ...user } = req.user;
+    return { ...user, id: sub };
   }
-
-  // Get all users (admin only)
   @Get('/')
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMINISTRATOR)
   async findAll() {
-    try {
-      const users = await this.userService.findAll();
-      // Map users to ensure proper id field is present
-      return users.map((user) => ({
-        ...user.toObject(),
-        id: user._id.toString(), // Ensure id field is properly mapped
-      }));
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.NOT_FOUND,
-          error: 'No users found',
-        },
-        HttpStatus.NOT_FOUND,
-        { cause: error },
-      );
-    }
+    const users = await this.userService.findAll();
+    return users.map(user => {
+      const { password, ...result } = user.toObject();
+      return { ...result, id: user._id.toString() };
+    });
   }
-
-  // Update user role (admin only)
   @Put('/:id/role')
-  @UseGuards(AdminGuard)
-  async updateUserRole(
-    @Param('id') id: string,
-    @Body() body: { role: string },
-  ) {
-    try {
-      const validRoles = [
-        'Submitter',
-        'Moderator',
-        'Analyst',
-        'Searcher',
-        'Administrator',
-      ];
-      if (!validRoles.includes(body.role)) {
-        throw new Error('Invalid role');
-      }
-
-      // Update the user's role
-      const updatedUser = await this.userService.update(id, {
-        role: body.role as any,
-      });
-      if (!updatedUser) {
-        throw new Error('User not found');
-      }
-
-      return {
-        message: 'User role updated successfully',
-        user: {
-          ...updatedUser.toObject(),
-          id: updatedUser._id.toString(), // Ensure id field is properly mapped
-        },
-      };
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.BAD_REQUEST,
-          error: error.message || 'Unable to update user role',
-        },
-        HttpStatus.BAD_REQUEST,
-        { cause: error },
-      );
-    }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMINISTRATOR)
+  async updateUserRole(@Param('id') id: string, @Body() body: UpdateRoleDto, @Req() req: { user: AuthenticatedUser }) {
+    if (id === req.user.sub && body.role !== UserRole.ADMINISTRATOR) throw new ForbiddenException('Cannot remove your own administrator role');
+    const user = await this.userService.update(id, { role: body.role });
+    if (!user) throw new NotFoundException('User not found');
+    const { password, ...result } = user.toObject();
+    return { message: 'User role updated successfully', user: { ...result, id: user._id.toString() } };
   }
 }

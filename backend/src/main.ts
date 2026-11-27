@@ -1,11 +1,18 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-
+import { configureApp, verifyArticleIndexes } from './app.config';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  // enable cors
-  app.enableCors({ origin: true, credentials: true });
-  const port = process.env.PORT || 8082;
-  await app.listen(port, () => console.log(`Server running on port ${port}`));
+  try {
+    configureApp(app);
+    await app.init();
+    await verifyArticleIndexes(app);
+    app.enableShutdownHooks();
+    const port = process.env.PORT || 8082;
+    await app.listen(port, () => console.log('Server running on port ' + port));
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
 }
-bootstrap();
+bootstrap().catch(error => { console.error(error); process.exitCode = 1; });

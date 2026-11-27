@@ -1,3 +1,4 @@
+import { authFetch } from "@/utils/auth.utils";
 // frontend/src/pages/user/ratings.tsx
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
@@ -18,10 +19,11 @@ interface RatedArticle {
 const UserRatingsPage = () => {
   const [ratedArticles, setRatedArticles] = useState<RatedArticle[]>([]);
   const [loading, setLoading] = useState(true);
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, loading: authLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
+    if (authLoading) return;
     // 检查用户是否已认证
     if (!isAuthenticated) {
       router.push("/login");
@@ -31,11 +33,11 @@ const UserRatingsPage = () => {
     const fetchRatedArticles = async () => {
       try {
         // 获取用户评分历史的API端点（需要后端实现）
-        const response = await fetch(
+        const response = await authFetch(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${user?.id}/ratings`,
           {
             headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
+              Authorization: `Bearer ${localStorage.getItem("access_token")}`,
             },
           },
         );
@@ -52,7 +54,7 @@ const UserRatingsPage = () => {
     };
 
     fetchRatedArticles();
-  }, [isAuthenticated, router, user?.id]);
+  }, [isAuthenticated, router, user?.id, authLoading]);
 
   if (loading) {
     return (

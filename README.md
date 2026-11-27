@@ -30,8 +30,8 @@ The application follows a modern full-stack architecture:
 ![System Architecture](./images/system_architecture.png "System Architecture Diagram")
 
 ### Frontend
-- **Next.js** (15.5.3) - React-based framework
-- **React** (19.1.0) - UI library
+- **Next.js** (16.x) - React-based framework
+- **React** (19.2.x) - UI library
 - **TypeScript** (5.x) - Type safety
 - **Tailwind CSS** (v4) - Utility-first CSS framework
 - **Sass** - CSS extension language
@@ -39,7 +39,7 @@ The application follows a modern full-stack architecture:
 - **Formik & Yup** - Form management and validation
 - **React Hook Form** - Alternative form management
 - **React Icons** - UI icons
-- **Next-Auth** - Authentication solution
+- **JWT AuthContext** - Authentication solution
 
 ### Backend
 - **NestJS** (11.x) - Node.js framework
@@ -54,7 +54,7 @@ The application follows a modern full-stack architecture:
 
 ## 📋 Prerequisites
 
-- Node.js (v18 or higher)
+- Node.js (v20.9 or higher)
 - npm or yarn
 - MongoDB (local instance or cloud service like MongoDB Atlas)
 
@@ -73,7 +73,7 @@ Create a `.env` file in the `backend` directory with the following variables:
 
 ```env
 DB_URI=mongodb://localhost:27017/cise_speed
-JWT_SECRET=your-super-secret-jwt-key
+JWT_SECRET=replace-with-a-random-secret-at-least-32-characters
 JWT_EXPIRES_IN=24h
 PORT=8082
 FRONTEND_URL=http://localhost:3000
@@ -82,9 +82,7 @@ FRONTEND_URL=http://localhost:3000
 For the frontend, create a `.env.local` file in the `frontend` directory:
 
 ```env
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=your-next-auth-secret
-BACKEND_URL=http://localhost:8082
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8082
 ```
 
 ### 3. Install Dependencies

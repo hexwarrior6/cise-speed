@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { Formik, Form, Field, ErrorMessage, FormikProps } from "formik";
+import { Formik, Form, Field, ErrorMessage, FormikProps, FormikHelpers } from "formik";
 import * as Yup from "yup";
 import { EvidenceType } from "../types/article";
 import { useAuth } from "../contexts/AuthContext";
+import { authFetch } from "@/utils/auth.utils";
 
 interface ArticleFormData {
   customId: string;
@@ -26,7 +27,7 @@ const validationSchema = Yup.object().shape({
     .optional()
     .matches(
       /^[A-Za-z0-9_\-]+$/,
-      "ID can only contain letters, numbers, underscores, and hyphens",
+      { message: "ID can only contain letters, numbers, underscores, and hyphens", excludeEmptyString: true },
     ),
   title: Yup.string()
     .required("Title is required")
@@ -38,10 +39,7 @@ const validationSchema = Yup.object().shape({
     .matches(/^\d{4}$/, "Publication year must be 4 digits"),
   doi: Yup.string()
     .required("DOI is required")
-    .matches(
-      /^10\.\d{4,}(?:\.\d+)*\/[-._;()\/\w]+$/,
-      "Please enter a valid DOI",
-    ),
+    .test("doi", "Please enter a valid DOI", value => !!value && /^10\.\d{4,}(?:\.\d+)*\/\S+$/i.test(value.trim().replace(/^(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*)/i, ""))),
   claim: Yup.string()
     .required("Claim is required")
     .min(10, "Claim must be at least 10 characters long"),
@@ -50,12 +48,12 @@ const validationSchema = Yup.object().shape({
 });
 
 const SubmitterForm: React.FC<SubmitArticleProps> = ({ onSubmitSuccess }) => {
+  const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const { user } = useAuth();
 
-  const handleSubmit = async (values: ArticleFormData) => {
+  const handleSubmit = async (values: ArticleFormData, helpers: FormikHelpers<ArticleFormData>) => {
     setSubmitting(true);
     setError(null);
     setSuccess(null);
@@ -72,56 +70,16 @@ const SubmitterForm: React.FC<SubmitArticleProps> = ({ onSubmitSuccess }) => {
         submissionValues = values;
       }
 
-      // Conditionally include submitterEmail based on user selection
-      let finalSubmissionValuesWithNotification;
-      if (values.useEmailForNotification && user?.email) {
-        finalSubmissionValuesWithNotification = {
-          ...submissionValues,
-          submitterEmail: user.email,
-        };
-      } else {
-        finalSubmissionValuesWithNotification = {
-          ...submissionValues,
-          submitterEmail: "",
-        };
-      }
-
-      // Check if ID already exists - only if customId is provided
-      if (
-        finalSubmissionValuesWithNotification.customId &&
-        finalSubmissionValuesWithNotification.customId.trim()
-      ) {
-        const idCheckResponse = await fetch(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/${finalSubmissionValuesWithNotification.customId}`,
-          {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          },
-        );
-
-        if (idCheckResponse.ok) {
-          throw new Error(
-            `Article with ID '${finalSubmissionValuesWithNotification.customId}' already exists. Please choose a different ID.`,
-          );
-        }
-      }
-
-      // Extract only the properties we need for the submission
-      const {
-        useEmailForNotification, // eslint-disable-line @typescript-eslint/no-unused-vars
-        ...cleanSubmissionValues
-      } = finalSubmissionValuesWithNotification;
+      const cleanSubmissionValues = { ...submissionValues, useEmailForNotification: values.useEmailForNotification };
 
       // Proceed with submission
-      const response = await fetch(
+      const response = await authFetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/submit`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
           },
           body: JSON.stringify(cleanSubmissionValues),
         },
@@ -130,25 +88,8 @@ const SubmitterForm: React.FC<SubmitArticleProps> = ({ onSubmitSuccess }) => {
       if (!response.ok) {
         // Try to get error details from response
         const errorData = await response.json().catch(() => ({}));
-        // Use specific error message if available, otherwise generic message
-        const errorMessage =
-          errorData?.error || errorData?.message || "Failed to submit article";
-        // Enhance duplicate ID error message
-        if (errorMessage.includes("already exists")) {
-          // If the error message contains an empty ID, it means the backend tried to process an empty ID
-          // This could happen if the customId field was sent as an empty string
-          if (errorMessage.includes("''")) {
-            // The backend encountered an error with an empty string ID
-            throw new Error(
-              "There was an issue with article ID generation. Please try submitting again.",
-            );
-          } else {
-            // Use the original logic for non-empty IDs
-            throw new Error(
-              `Article with ID '${values.customId}' already exists. Please choose a different ID.`,
-            );
-          }
-        }
+        const message = errorData.message || errorData.error || "Failed to submit article";
+        const errorMessage = Array.isArray(message) ? message.join("; ") : String(message);
         throw new Error(errorMessage);
       }
 
@@ -156,6 +97,7 @@ const SubmitterForm: React.FC<SubmitArticleProps> = ({ onSubmitSuccess }) => {
       setSuccess(data.message);
       onSubmitSuccess?.(data.article);
 
+      helpers.resetForm();
       // Reset form after successful submission
       setTimeout(() => {
         setSuccess(null);

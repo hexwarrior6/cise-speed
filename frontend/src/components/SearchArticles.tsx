@@ -461,7 +461,7 @@ const SearchArticles: React.FC = () => {
                       aria-label="Select article status"
                     >
                       <option value="">All Statuses</option>
-                      {Object.values(ArticleStatus).map((statusValue) => (
+                      {[ArticleStatus.APPROVED].map((statusValue) => (
                         <option key={statusValue} value={statusValue}>
                           {statusValue}
                         </option>

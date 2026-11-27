@@ -1,5 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ArticleController } from './article.controller';
+import { JwtAuthGuard } from '../user/jwt-auth.guard';
+import { RolesGuard } from '../user/roles.guard';
 import { ArticleService } from './article.service';
 import { Article, ArticleStatus, EvidenceType } from './article.schema';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
@@ -28,7 +30,7 @@ describe('ArticleController', () => {
           useValue: mockArticleService,
         },
       ],
-    }).compile();
+    }).overrideGuard(JwtAuthGuard).useValue({ canActivate: () => true }).overrideGuard(RolesGuard).useValue({ canActivate: () => true }).compile();
 
     controller = module.get<ArticleController>(ArticleController);
   });
@@ -335,12 +337,7 @@ describe('ArticleController', () => {
 
       (mockArticleService.findAll as jest.Mock).mockResolvedValue(mockArticles);
 
-      const result = await controller.findAll(ArticleStatus.PENDING);
-
-      expect(mockArticleService.findAll).toHaveBeenCalledWith(
-        ArticleStatus.PENDING,
-      );
-      expect(result).toEqual(mockArticles);
+      await expect(controller.findAll(ArticleStatus.PENDING)).rejects.toThrow('Only approved articles are public');
     });
 
     // it('should handle findAll error', async () => {

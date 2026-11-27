@@ -1,31 +1,18 @@
-// utils/auth.utils.ts
-
-// Utility function to get the authentication token from localStorage
-export const getAuthToken = (): string | null => {
-  return typeof window !== "undefined"
-    ? localStorage.getItem("access_token")
-    : null;
-};
-
-// Utility function to get the current user from localStorage
+export const getAuthToken = (): string | null => typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
 export const getCurrentUser = () => {
-  if (typeof window !== "undefined") {
-    const userStr = localStorage.getItem("user");
-    return userStr ? JSON.parse(userStr) : null;
-  }
-  return null;
+  if (typeof window === "undefined") return null;
+  try { return JSON.parse(localStorage.getItem("user") || "null"); } catch { return null; }
 };
-
-// Utility function to add auth headers to fetch requests
 export const addAuthHeader = (headers: HeadersInit = {}): HeadersInit => {
+  const result = new Headers(headers);
   const token = getAuthToken();
-  return {
-    ...headers,
-    ...(token && { Authorization: `Bearer ${token}` }),
-  };
+  if (token) result.set("Authorization", `Bearer ${token}`);
+  return result;
 };
-
-// Utility function to check if user is authenticated
-export const isAuthenticated = (): boolean => {
-  return !!getAuthToken();
+export const isAuthenticated = () => !!getAuthToken();
+export const authFetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
+  const token = getAuthToken();
+  const response = await fetch(input, { ...init, headers: addAuthHeader(init.headers) });
+  if (response.status === 401 && typeof window !== "undefined" && getAuthToken() === token) window.dispatchEvent(new Event("auth:expired"));
+  return response;
 };

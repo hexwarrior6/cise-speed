@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class EmailService {
-  private transporter: nodemailer.Transporter;
+  private transporter?: nodemailer.Transporter;
 
   constructor(private configService: ConfigService) {
     // Get email configuration from environment
@@ -15,7 +15,11 @@ export class EmailService {
     const emailSecure =
       this.configService.get<string>('EMAIL_SECURE') === 'true';
 
+    if (!emailHost || !emailUser || !emailPassword) return;
     this.transporter = nodemailer.createTransport({
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
       host: emailHost,
       port: emailPort,
       secure: emailSecure, // true for 465, false for other ports
@@ -25,6 +29,8 @@ export class EmailService {
       },
     });
   }
+
+  isConfigured(): boolean { return !!this.transporter; }
 
   async sendMail(
     to: string,
@@ -45,6 +51,7 @@ export class EmailService {
         html, // HTML content
       };
 
+      if (!this.transporter) return false;
       const info = await this.transporter.sendMail(mailOptions);
       console.log('Email sent successfully:', info.messageId);
       return true;
@@ -73,6 +80,7 @@ export class EmailService {
         html, // HTML content
       };
 
+      if (!this.transporter) return false;
       const info = await this.transporter.sendMail(mailOptions);
       console.log('Bulk email sent successfully:', info.messageId);
       return true;

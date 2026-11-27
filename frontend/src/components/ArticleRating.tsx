@@ -1,3 +1,4 @@
+import { authFetch } from "@/utils/auth.utils";
 // frontend/src/components/ArticleRating.tsx
 import React, { useState } from "react";
 import styles from "../styles/ArticlesPage.module.scss";
@@ -66,7 +67,7 @@ const ArticleRating: React.FC<ArticleRatingProps> = ({
     const confirmed = window.confirm(`确定给这篇文章评 ${rating} 分吗？`);
     if (confirmed) {
       try {
-        const response = await fetch(
+        const response = await authFetch(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/${customId}/rating`,
           {
             method: "POST",
@@ -87,9 +88,7 @@ const ArticleRating: React.FC<ArticleRatingProps> = ({
           if (response.status === 403) {
             alert("您没有权限执行此操作，请确保您已登录并且具有正确的角色");
             // 清除本地存储的认证信息
-            localStorage.removeItem("access_token");
-            localStorage.removeItem("user");
-            router.push("/login");
+            // A forbidden role does not invalidate an otherwise valid session.
             return;
           }
 

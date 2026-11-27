@@ -7,15 +7,25 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         working-directory: backend
 
       - name: Build project
@@ -23,6 +33,19 @@ jobs:
         working-directory: backend
 
       - name: Run tests
-        run: npm run test
+        run: npm run test -- --runInBand
+        working-directory: backend
+
+      - name: Production dependency audit (report only)
+        run: npm audit --omit=dev --audit-level=high
         working-directory: backend
         continue-on-error: true
+
+      - name: MongoDB integration tests
+        run: npm run test:e2e -- --runInBand
+        working-directory: backend
+        env:
+          DB_URI: mongodb://127.0.0.1:27017/cise_speed_test
+          JWT_SECRET: ci-only-test-secret-not-for-production-1234
+          JWT_EXPIRES_IN: 1h
+          NOTIFICATION_WORKER_ENABLED: 'false'

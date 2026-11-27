@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from "react";
+import { authFetch } from "@/utils/auth.utils";
+import React, { useState, useEffect, useRef } from "react";
 import { Article, ReviewData } from "../types/article";
 import { commentTemplates, CommentTemplate } from "../utils/commentTemplates";
 import styles from "../styles/ModeratorQueue.module.scss";
 
 const ModeratorQueue: React.FC = () => {
+  const duplicateRequest = useRef(0);
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,11 +33,11 @@ const ModeratorQueue: React.FC = () => {
 
   const fetchPendingArticles = async () => {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/moderator/pending`,
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
           },
         },
       );
@@ -54,17 +56,18 @@ const ModeratorQueue: React.FC = () => {
   };
 
   const checkForDuplicates = async (doi: string, currentId?: string) => {
-    if (!doi) return;
+    const request = ++duplicateRequest.current;
+    if (!doi) { setDuplicateCheckLoading(false); return; }
 
     setDuplicateCheckLoading(true);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/check-duplicate`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
           },
           body: JSON.stringify({
             doi,
@@ -78,20 +81,22 @@ const ModeratorQueue: React.FC = () => {
       }
 
       const data = await response.json();
-      setDuplicateCheckResults(data);
+      if (request === duplicateRequest.current) setDuplicateCheckResults(data);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to check duplicates",
       );
     } finally {
-      setDuplicateCheckLoading(false);
+      if (request === duplicateRequest.current) setDuplicateCheckLoading(false);
     }
   };
 
   const handleArticleSelect = (article: Article) => {
+    setError(null);
+    setSelectedTemplate("");
     setSelectedArticle(article);
     setReviewData({
-      status: "Approved",
+      status: article.isDuplicate ? "Rejected" : "Approved",
       reviewComment: "",
       isDuplicate: article.isDuplicate || false,
       duplicateOf: article.duplicateOf || "",
@@ -104,25 +109,27 @@ const ModeratorQueue: React.FC = () => {
   const handleReviewSubmit = async () => {
     if (!selectedArticle) return;
 
+    setError(null);
     setSubmittingReview(true);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/${selectedArticle.customId}/review`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
           },
           body: JSON.stringify(reviewData),
         },
       );
 
       if (!response.ok) {
-        throw new Error("Failed to submit review");
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to submit review");
       }
 
-      setReviewSuccess("Article reviewed successfully");
+      setReviewSuccess("Article reviewed successfully. Email notification will be processed separately.");
       setSelectedArticle(null);
       fetchPendingArticles();
 
@@ -500,6 +507,7 @@ const ModeratorQueue: React.FC = () => {
                               type="radio"
                               name="duplicateChoice"
                               value={duplicate.customId}
+                              disabled={duplicate.status !== "Approved" || duplicate.isDuplicate}
                               checked={
                                 reviewData.duplicateOf === duplicate.customId
                               }
@@ -507,6 +515,7 @@ const ModeratorQueue: React.FC = () => {
                                 setReviewData({
                                   ...reviewData,
                                   isDuplicate: true,
+                                  status: "Rejected",
                                   duplicateOf: duplicate.customId,
                                 })
                               }
@@ -516,7 +525,7 @@ const ModeratorQueue: React.FC = () => {
                                 {duplicate.title}
                               </span>
                               <span className={styles.duplicateId}>
-                                ID: {duplicate.customId}
+                                ID: {duplicate.customId} ({duplicate.status})
                               </span>
                             </div>
                           </label>
@@ -567,6 +576,7 @@ const ModeratorQueue: React.FC = () => {
                         type="radio"
                         name="status"
                         value="Approved"
+                        disabled={reviewData.isDuplicate}
                         checked={reviewData.status === "Approved"}
                         onChange={(e) =>
                           setReviewData({
@@ -641,6 +651,8 @@ const ModeratorQueue: React.FC = () => {
                         setReviewData({
                           ...reviewData,
                           isDuplicate: e.target.checked,
+                          status: e.target.checked ? "Rejected" : reviewData.status,
+                          duplicateOf: e.target.checked ? reviewData.duplicateOf : "",
                         })
                       }
                     />
@@ -711,7 +723,7 @@ const ModeratorQueue: React.FC = () => {
                 <div className={styles.submitSection}>
                   <button
                     onClick={handleReviewSubmit}
-                    disabled={submittingReview}
+                    disabled={submittingReview || duplicateCheckLoading || (reviewData.isDuplicate && !reviewData.duplicateOf)}
                     className={styles.submitBtn}
                   >
                     {submittingReview ? (

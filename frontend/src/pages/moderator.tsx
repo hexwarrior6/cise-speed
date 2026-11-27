@@ -1,6 +1,7 @@
 import React from "react";
 import Head from "next/head";
 import ModeratorQueue from "../components/ModeratorQueue";
+import NotificationIssues from "../components/NotificationIssues";
 import { useAuth } from "../contexts/AuthContext";
 import { useRouter } from "next/router";
 
@@ -28,6 +29,8 @@ const ModeratorPage: React.FC = () => {
   if (loading) {
     return <div className="text-center p-8">Loading...</div>;
   }
+  if (!user || !["Moderator", "Administrator"].includes(user.role)) return null;
+
 
   return (
     <>
@@ -41,6 +44,7 @@ const ModeratorPage: React.FC = () => {
       <main className="min-h-screen bg-gray-50 py-4">
         <div className="container mx-auto px-4">
           <ModeratorQueue />
+          <NotificationIssues />
         </div>
       </main>
     </>
