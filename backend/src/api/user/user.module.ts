@@ -47,7 +47,8 @@ function parseTimeToSeconds(timeString: string): number {
             : expiresIn;
 
         const secret = process.env.JWT_SECRET;
-        if (!secret || secret.length < 32) throw new Error('JWT_SECRET must contain at least 32 characters');
+        if (!secret || secret.length < 32 || secret.startsWith('replace-with-')) throw new Error('JWT_SECRET must contain at least 32 characters');
+        if (!Number.isSafeInteger(expiresInSeconds) || expiresInSeconds <= 0) throw new Error('JWT_EXPIRES_IN must be positive');
         return {
           secret,
           signOptions: {

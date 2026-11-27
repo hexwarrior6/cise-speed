@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from './user.schema';
@@ -14,6 +14,7 @@ export class UserService {
   ) {}
 
   async register(createUserDto: CreateUserDto) {
+    if (Buffer.byteLength(createUserDto.password, 'utf8') > 72) throw new BadRequestException('Password must not exceed 72 UTF-8 bytes');
     // Check if user already exists
     const existingUser = await this.userModel.findOne({
       $or: [
@@ -43,10 +44,14 @@ export class UserService {
       password: hashedPassword,
     });
 
-    return newUser.save();
+    try { return await newUser.save(); } catch (error) {
+      if ((error as { code?: number }).code === 11000) throw new ConflictException('Email already exists');
+      throw error;
+    }
   }
 
   async login(loginUserDto: LoginUserDto) {
+    if (Buffer.byteLength(loginUserDto.password, 'utf8') > 72) throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
     // Find user by email
     const user = await this.userModel.findOne({ email: loginUserDto.email }).select('+password');
     if (!user || !user.isActive) {

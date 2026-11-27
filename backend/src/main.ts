@@ -1,12 +1,18 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { configureApp, verifyArticleIndexes } from './app.config';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  const origins = (process.env.FRONTEND_URL || 'http://localhost:3000').split(',').map(v => v.trim()).filter(Boolean);
-  app.enableCors({ origin: origins, credentials: true });
-  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }));
-  const port = process.env.PORT || 8082;
-  await app.listen(port, () => console.log('Server running on port ' + port));
+  try {
+    configureApp(app);
+    await app.init();
+    await verifyArticleIndexes(app);
+    app.enableShutdownHooks();
+    const port = process.env.PORT || 8082;
+    await app.listen(port, () => console.log('Server running on port ' + port));
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
 }
-bootstrap();
+bootstrap().catch(error => { console.error(error); process.exitCode = 1; });
