@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Formik, Form, Field, ErrorMessage, FormikProps } from "formik";
 import * as Yup from "yup";
 import { EvidenceType } from "../types/article";
-import { useAuth } from "../contexts/AuthContext";
+import { authFetch } from "@/utils/auth.utils";
 
 interface ArticleFormData {
   customId: string;
@@ -53,7 +53,6 @@ const SubmitterForm: React.FC<SubmitArticleProps> = ({ onSubmitSuccess }) => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const { user } = useAuth();
 
   const handleSubmit = async (values: ArticleFormData) => {
     setSubmitting(true);
@@ -72,56 +71,16 @@ const SubmitterForm: React.FC<SubmitArticleProps> = ({ onSubmitSuccess }) => {
         submissionValues = values;
       }
 
-      // Conditionally include submitterEmail based on user selection
-      let finalSubmissionValuesWithNotification;
-      if (values.useEmailForNotification && user?.email) {
-        finalSubmissionValuesWithNotification = {
-          ...submissionValues,
-          submitterEmail: user.email,
-        };
-      } else {
-        finalSubmissionValuesWithNotification = {
-          ...submissionValues,
-          submitterEmail: "",
-        };
-      }
-
-      // Check if ID already exists - only if customId is provided
-      if (
-        finalSubmissionValuesWithNotification.customId &&
-        finalSubmissionValuesWithNotification.customId.trim()
-      ) {
-        const idCheckResponse = await fetch(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/${finalSubmissionValuesWithNotification.customId}`,
-          {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          },
-        );
-
-        if (idCheckResponse.ok) {
-          throw new Error(
-            `Article with ID '${finalSubmissionValuesWithNotification.customId}' already exists. Please choose a different ID.`,
-          );
-        }
-      }
-
-      // Extract only the properties we need for the submission
-      const {
-        useEmailForNotification, // eslint-disable-line @typescript-eslint/no-unused-vars
-        ...cleanSubmissionValues
-      } = finalSubmissionValuesWithNotification;
+      const cleanSubmissionValues = { ...submissionValues, useEmailForNotification: values.useEmailForNotification };
 
       // Proceed with submission
-      const response = await fetch(
+      const response = await authFetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/submit`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
           },
           body: JSON.stringify(cleanSubmissionValues),
         },

@@ -28,6 +28,8 @@ const SubmitPage: React.FC = () => {
   if (loading) {
     return <div className="text-center p-8">Loading...</div>;
   }
+  if (!user || !["Submitter", "Administrator"].includes(user.role)) return null;
+
 
   return (
     <>

@@ -28,6 +28,8 @@ const ModeratorPage: React.FC = () => {
   if (loading) {
     return <div className="text-center p-8">Loading...</div>;
   }
+  if (!user || !["Moderator", "Administrator"].includes(user.role)) return null;
+
 
   return (
     <>

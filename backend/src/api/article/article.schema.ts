@@ -35,7 +35,7 @@ export class Article {
   @Prop({ required: true })
   pubyear: string;
 
-  @Prop({ required: true, unique: true, index: true })
+  @Prop({ required: true, index: true })
   doi: string;
 
   @Prop({ required: true })
@@ -70,6 +70,12 @@ export class Article {
 
   @Prop()
   duplicateOf?: string; // Reference to the original article's customId
+
+  @Prop({ enum: ['Pending', 'Sent', 'Failed', 'Skipped'], default: 'Skipped' })
+  notificationStatus?: string;
 }
 
 export const ArticleSchema = SchemaFactory.createForClass(Article);
+
+// Multiple submissions may share a DOI; only one may be published.
+ArticleSchema.index({ doi: 1 }, { unique: true, partialFilterExpression: { status: ArticleStatus.APPROVED }, name: 'approved_doi_unique' });

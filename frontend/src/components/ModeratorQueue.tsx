@@ -1,3 +1,4 @@
+import { authFetch } from "@/utils/auth.utils";
 import React, { useState, useEffect } from "react";
 import { Article, ReviewData } from "../types/article";
 import { commentTemplates, CommentTemplate } from "../utils/commentTemplates";
@@ -31,11 +32,11 @@ const ModeratorQueue: React.FC = () => {
 
   const fetchPendingArticles = async () => {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/moderator/pending`,
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
           },
         },
       );
@@ -58,13 +59,13 @@ const ModeratorQueue: React.FC = () => {
 
     setDuplicateCheckLoading(true);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/check-duplicate`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
           },
           body: JSON.stringify({
             doi,
@@ -91,7 +92,7 @@ const ModeratorQueue: React.FC = () => {
   const handleArticleSelect = (article: Article) => {
     setSelectedArticle(article);
     setReviewData({
-      status: "Approved",
+      status: article.isDuplicate ? "Rejected" : "Approved",
       reviewComment: "",
       isDuplicate: article.isDuplicate || false,
       duplicateOf: article.duplicateOf || "",
@@ -106,20 +107,21 @@ const ModeratorQueue: React.FC = () => {
 
     setSubmittingReview(true);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/articles/${selectedArticle.customId}/review`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
           },
           body: JSON.stringify(reviewData),
         },
       );
 
       if (!response.ok) {
-        throw new Error("Failed to submit review");
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to submit review");
       }
 
       setReviewSuccess("Article reviewed successfully");

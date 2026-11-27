@@ -11,6 +11,8 @@ import { Model } from 'mongoose';
 import { Article, ArticleDocument, ArticleStatus } from './article.schema';
 import { CreateArticleDto, ReviewArticleDto } from './create-article.dto';
 import { EmailService } from '../../services/email.service';
+import { randomUUID } from 'node:crypto';
+import { normalizeDoi, escapeRegex } from './doi';
 
 @Injectable()
 export class ArticleService {
@@ -69,171 +71,102 @@ export class ArticleService {
   }
 
   async checkDuplicateByDOI(doi: string): Promise<boolean> {
-    const existingArticle = await this.articleModel.findOne({ doi }).exec();
-    return !!existingArticle;
+    return !!(await this.getDuplicateByDOI(doi));
   }
 
   async getDuplicateByDOI(doi: string): Promise<Article | null> {
-    return this.articleModel.findOne({ doi }).exec();
+    return this.articleModel.findOne({ doi: normalizeDoi(doi), status: { $ne: ArticleStatus.REJECTED } }).sort({ createdAt: 1 }).exec();
   }
 
-  async findArticlesBySimilarDOI(
-    doi: string,
-    excludeId?: string,
-  ): Promise<Article[]> {
-    const query: any = { doi };
-
-    if (excludeId) {
-      query.customId = { $ne: excludeId };
-    }
-
-    const exactMatches = await this.articleModel.find(query).exec();
-
-    if (exactMatches.length > 0) {
-      return exactMatches;
-    }
-
-    const doiParts = doi.split('/');
-    if (doiParts.length >= 2) {
-      const publisherPrefix = doiParts[0];
-      const query: any = {
-        doi: { $regex: publisherPrefix, $options: 'i' },
-      };
-
-      if (excludeId) {
-        query.customId = { $ne: excludeId };
-      }
-
-      const similarArticles = await this.articleModel
-        .find(query)
-        .limit(5)
-        .exec();
-
-      return similarArticles;
-    }
-
-    return [];
+  async findArticlesBySimilarDOI(doi: string, excludeId?: string): Promise<Article[]> {
+    const query: any = { doi: normalizeDoi(doi), status: { $ne: ArticleStatus.REJECTED } };
+    if (excludeId) query.customId = { $ne: excludeId };
+    return this.articleModel.find(query).sort({ createdAt: 1 }).exec();
   }
 
-  async submitArticle(createArticleDto: CreateArticleDto): Promise<Article> {
-    let customId = createArticleDto.customId?.trim();
-
-    if (!customId) {
-      const allArticles = await this.articleModel
-        .find({
-          customId: { $ne: '' },
-        })
-        .exec();
-
-      let maxId = 0;
-      for (const article of allArticles) {
-        if (article.customId) {
-          const idNum = parseInt(article.customId, 10);
-          if (!isNaN(idNum) && idNum > maxId) {
-            maxId = idNum;
-          }
-        }
-      }
-
-      customId = (maxId + 1).toString();
+  async submitArticle(dto: CreateArticleDto): Promise<Article> {
+    const customId = dto.customId?.trim() || randomUUID();
+    const doi = normalizeDoi(dto.doi);
+    const duplicate = await this.getDuplicateByDOI(doi);
+    const { useEmailForNotification, ...fields } = dto;
+    try {
+      return await this.articleModel.create({
+        ...fields, customId, doi,
+        status: ArticleStatus.PENDING,
+        isDuplicate: !!duplicate && duplicate.customId !== customId,
+        duplicateOf: duplicate && duplicate.customId !== customId ? duplicate.customId : undefined,
+      });
+    } catch (error) {
+      if ((error as { code?: number }).code === 11000) throw new HttpException('Article ID already exists, or the legacy DOI index must be migrated', HttpStatus.CONFLICT);
+      throw error;
     }
-
-    const existingById = await this.articleModel.findOne({ customId }).exec();
-    if (existingById) {
-      throw new HttpException(
-        `Article with ID '${customId}' already exists`,
-        HttpStatus.CONFLICT,
-      );
-    }
-
-    createArticleDto.customId = customId;
-
-    const isDuplicate = await this.checkDuplicateByDOI(createArticleDto.doi);
-
-    const articleData: any = {
-      ...createArticleDto,
-      status: ArticleStatus.PENDING,
-      isDuplicate: isDuplicate,
-    };
-
-    if (isDuplicate) {
-      const duplicateArticle = await this.getDuplicateByDOI(
-        createArticleDto.doi,
-      );
-      if (duplicateArticle && duplicateArticle.customId !== customId) {
-        articleData.duplicateOf = duplicateArticle.customId;
-      }
-    }
-
-    const newArticle = new this.articleModel(articleData);
-    return newArticle.save();
   }
 
-  async update(id: string, createArticleDto: CreateArticleDto) {
-    return this.articleModel
-      .findOneAndUpdate({ customId: id }, createArticleDto, { new: true, runValidators: true })
-      .exec();
-  }
-
-  async reviewArticle(
-    id: string,
-    reviewData: ReviewArticleDto,
-    reviewerId: string,
-  ): Promise<Article> {
+  async update(id: string, dto: CreateArticleDto) {
+    const doi = normalizeDoi(dto.doi);
+    // A published article's DOI is its stable identity; changes require a new submission.
     const article = await this.articleModel.findOne({ customId: id }).exec();
-    if (!article) {
-      throw new HttpException('Article not found', HttpStatus.NOT_FOUND);
-    }
+    if (!article) return null;
+    if (normalizeDoi(article.doi) !== doi) throw new BadRequestException('Changing DOI requires a new submission');
+    return this.articleModel.findOneAndUpdate({ customId: id }, { ...dto, doi }, { new: true, runValidators: true }).exec();
+  }
 
-    const updateData = {
-      status: reviewData.status,
-      reviewerId,
-      reviewComment: reviewData.reviewComment,
+  async reviewArticle(id: string, reviewData: ReviewArticleDto, reviewerId: string): Promise<Article> {
+    if (![ArticleStatus.APPROVED, ArticleStatus.REJECTED].includes(reviewData.status as ArticleStatus)) throw new BadRequestException('Invalid review status');
+    const article = await this.articleModel.findOne({ customId: id }).exec();
+    if (!article) throw new NotFoundException('Article not found');
+    if (article.status !== ArticleStatus.PENDING) throw new HttpException('Article already reviewed', HttpStatus.CONFLICT);
+    const updateData: Record<string, unknown> = {
+      status: reviewData.status, reviewerId,
+      reviewComment: reviewData.reviewComment?.trim() || '',
+      isDuplicate: !!reviewData.isDuplicate,
+      notificationStatus: article.submitterEmail ? 'Pending' : 'Skipped',
     };
-
     if (reviewData.isDuplicate) {
-      updateData['isDuplicate'] = true;
-      if (reviewData.duplicateOf === id) {
-        throw new HttpException(
-          'Cannot mark article as duplicate of itself',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      updateData['duplicateOf'] = reviewData.duplicateOf;
-    } else {
-      updateData['isDuplicate'] = false;
-      updateData['duplicateOf'] = undefined;
+      if (reviewData.duplicateOf === id) throw new BadRequestException('Cannot mark article as duplicate of itself');
+      if (!reviewData.duplicateOf) throw new BadRequestException('Select the original article');
+      const original = await this.articleModel.findOne({ customId: reviewData.duplicateOf, status: ArticleStatus.APPROVED }).exec();
+      if (!original || original.isDuplicate || normalizeDoi(original.doi) !== normalizeDoi(article.doi)) throw new BadRequestException('Duplicate must reference an approved original with the same DOI');
+      if (reviewData.status !== ArticleStatus.REJECTED) throw new BadRequestException('Duplicate submissions must be rejected');
+      updateData.duplicateOf = original.customId;
     }
-
-    const updatedArticle = await this.articleModel
-      .findOneAndUpdate({ customId: id }, updateData, { new: true })
-      .exec();
-
-    if (!updatedArticle) {
-      throw new HttpException(
-        'Failed to update article',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+    const doi = normalizeDoi(article.doi);
+    if (reviewData.status === ArticleStatus.APPROVED) {
+      const existing = await this.articleModel.findOne({ doi, status: ArticleStatus.APPROVED, customId: { $ne: id } }).exec();
+      if (existing) throw new HttpException('An approved article already uses this DOI', HttpStatus.CONFLICT);
     }
-
-    console.log(
-      `Attempting to send notification email for article ${updatedArticle.customId} with status ${updatedArticle.status}`,
-    );
-    await this.sendReviewNotificationEmail(updatedArticle);
-
+    let updatedArticle;
+    try {
+      updatedArticle = await this.articleModel.findOneAndUpdate(
+        { customId: id, status: ArticleStatus.PENDING },
+        { $set: { ...updateData, doi }, ...(!reviewData.isDuplicate ? { $unset: { duplicateOf: 1 } } : {}) },
+        { new: true, runValidators: true },
+      ).exec();
+    } catch (error) {
+      if ((error as { code?: number }).code === 11000) throw new HttpException('An approved article already uses this DOI', HttpStatus.CONFLICT);
+      throw error;
+    }
+    if (!updatedArticle) throw new HttpException('Article already reviewed', HttpStatus.CONFLICT);
+    if (updatedArticle.submitterEmail) {
+      const sent = await this.sendReviewNotificationEmail(updatedArticle);
+      const notificationStatus = sent ? 'Sent' : 'Failed';
+      // Do not roll back a committed review just because SMTP or notification bookkeeping fails.
+      try {
+        await this.articleModel.updateOne({ customId: id }, { $set: { notificationStatus } }).exec();
+        updatedArticle.notificationStatus = notificationStatus;
+      } catch (error) { console.error('Unable to record notification status', error); }
+    }
     return updatedArticle;
   }
 
-  private async sendReviewNotificationEmail(article: Article) {
-    console.log(
-      `Processing notification for article ${article.customId} with status ${article.status} and submitter email ${article.submitterEmail}`,
-    );
+  private async sendReviewNotificationEmail(article: Article): Promise<boolean> {
+    const escapeHtml = (value: string) => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
 
     if (!article.submitterEmail) {
       console.warn(
         `No submitter email found for article ${article.customId} - article.service.ts:228`,
       );
-      return;
+      return false;
     }
 
     let subject = '';
@@ -244,14 +177,14 @@ export class ArticleService {
       htmlContent = `
         <h2>Article Review Result Notification</h2>
         <p>Hello,</p>
-        <p>Your article <strong>"${article.title}"</strong> has been approved and added to the database.</p>
+        <p>Your article <strong>"${escapeHtml(article.title)}"</strong> has been approved and added to the database.</p>
         <p><strong>Article Details:</strong></p>
         <ul>
-          <li>Title: ${article.title}</li>
-          <li>ID: ${article.customId}</li>
-          <li>Authors: ${article.authors}</li>
-          <li>Publication Year: ${article.pubyear}</li>
-          <li>Evidence Type: ${article.evidence}</li>
+          <li>Title: ${escapeHtml(article.title)}</li>
+          <li>ID: ${escapeHtml(article.customId)}</li>
+          <li>Authors: ${escapeHtml(article.authors)}</li>
+          <li>Publication Year: ${escapeHtml(article.pubyear)}</li>
+          <li>Evidence Type: ${escapeHtml(article.evidence)}</li>
         </ul>
         <p>Thank you for contributing to the CISE_SPEED database!</p>
         <p>If you have any questions, please feel free to contact us.</p>
@@ -261,25 +194,25 @@ export class ArticleService {
       htmlContent = `
         <h2>Article Review Result Notification</h2>
         <p>Hello,</p>
-        <p>Unfortunately, your article <strong>"${article.title}"</strong> did not pass the review.</p>
+        <p>Unfortunately, your article <strong>"${escapeHtml(article.title)}"</strong> did not pass the review.</p>
 
-        ${article.reviewComment ? `<p><strong>Review Comment:</strong> ${article.reviewComment}</p>` : ''}
+        ${article.reviewComment ? `<p><strong>Review Comment:</strong> ${escapeHtml(article.reviewComment || '')}</p>` : ''}
 
         <p><strong>Article Details:</strong></p>
         <ul>
-          <li>Title: ${article.title}</li>
-          <li>ID: ${article.customId}</li>
-          <li>Authors: ${article.authors}</li>
-          <li>Publication Year: ${article.pubyear}</li>
+          <li>Title: ${escapeHtml(article.title)}</li>
+          <li>ID: ${escapeHtml(article.customId)}</li>
+          <li>Authors: ${escapeHtml(article.authors)}</li>
+          <li>Publication Year: ${escapeHtml(article.pubyear)}</li>
         </ul>
         <p>Thank you for your interest and contribution to the CISE_SPEED database!</p>
         <p>If you have any questions, please feel free to contact us.</p>
       `;
     } else {
       console.log(
-        `Article ${article.customId} status changed to ${article.status}, no email notification required.`,
+        `Article ${escapeHtml(article.customId)} status changed to ${article.status}, no email notification required.`,
       );
-      return;
+      return false;
     }
 
     console.log(
@@ -304,11 +237,13 @@ export class ArticleService {
           `Failed to send notification email to ${article.submitterEmail} for article ${article.customId}`,
         );
       }
+      return result;
     } catch (error) {
       console.error(
         `Error sending notification email to ${article.submitterEmail} for article ${article.customId}:`,
         error,
       );
+      return false;
     }
   }
 
@@ -328,7 +263,7 @@ export class ArticleService {
     };
 
     if (keywords) {
-      const keywordRegex = new RegExp(keywords, 'i');
+      const keywordRegex = new RegExp(escapeRegex(keywords), 'i');
       query.$or = [
         { title: keywordRegex },
         { authors: keywordRegex },
@@ -359,7 +294,7 @@ export class ArticleService {
     }
 
     if (authors) {
-      query.authors = new RegExp(authors, 'i');
+      query.authors = new RegExp(escapeRegex(authors), 'i');
     }
 
     if (status) {
@@ -367,7 +302,7 @@ export class ArticleService {
     }
 
     if (source) {
-      query.source = new RegExp(source, 'i');
+      query.source = new RegExp(escapeRegex(source), 'i');
     }
 
     const sortObject: any = {};
