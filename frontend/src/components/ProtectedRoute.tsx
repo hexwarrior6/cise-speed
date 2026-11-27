@@ -9,18 +9,20 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
+    if (loading) return;
     if (!isAuthenticated) {
       router.push("/login");
     } else if (allowedRoles && user && !allowedRoles.includes(user.role)) {
       // Optionally redirect to unauthorized page
       router.push("/"); // Redirect to home if not authorized
     }
-  }, [isAuthenticated, user, router, allowedRoles]);
+  }, [isAuthenticated, user, router, allowedRoles, loading]);
 
+  if (loading) return <div>Loading session...</div>;
   if (!isAuthenticated) {
     // You can return a loading spinner or null while redirecting
     return <div>Redirecting to login...</div>;

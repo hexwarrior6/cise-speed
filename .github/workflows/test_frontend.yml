@@ -16,9 +16,15 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         working-directory: frontend
 
       - name: Run tests
-        run: npm run test
+        run: npm run test -- --runInBand
         working-directory: frontend
+
+      - name: Build project
+        run: npm run build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_BACKEND_URL: http://localhost:8082

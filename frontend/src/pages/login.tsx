@@ -4,12 +4,14 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import formStyles from "../styles/Form.module.scss";
 import { LoginUserDto } from "@/types/user.types";
+import { useAuth } from "@/contexts/AuthContext";
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { login } = useAuth();
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -36,8 +38,7 @@ const LoginPage = () => {
         const data = await response.json();
 
         // Store the token and user info in localStorage
-        localStorage.setItem("access_token", data.access_token);
-        localStorage.setItem("user", JSON.stringify(data.user));
+        login(data);
 
         // Redirect to dashboard or home page
         router.push("/");

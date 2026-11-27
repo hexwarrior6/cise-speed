@@ -2,16 +2,17 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { User, UserRole } from "../../types/user.types";
-import { addAuthHeader } from "../../utils/auth.utils";
+import { addAuthHeader, authFetch } from "../../utils/auth.utils";
 import styles from "../../styles/AdminUsers.module.scss";
 
 const AdminUsersPage = () => {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, loading: authLoading } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!currentUser || currentUser.role !== "Administrator") {
       // Redirect to login or show unauthorized message
       window.location.href = "/login";
@@ -20,7 +21,7 @@ const AdminUsersPage = () => {
 
     const fetchUsers = async () => {
       try {
-        const response = await fetch(
+        const response = await authFetch(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users`,
           {
             method: "GET",
@@ -50,11 +51,11 @@ const AdminUsersPage = () => {
     };
 
     fetchUsers();
-  }, [currentUser]);
+  }, [currentUser, authLoading]);
 
   const updateUserRole = async (userId: string, newRole: UserRole) => {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/${userId}/role`,
         {
           method: "PUT",

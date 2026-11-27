@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: "20"
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         working-directory: backend
 
       - name: Build project
@@ -23,6 +23,5 @@ jobs:
         working-directory: backend
 
       - name: Run tests
-        run: npm run test
+        run: npm run test -- --runInBand
         working-directory: backend
-        continue-on-error: true
