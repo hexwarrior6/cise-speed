@@ -1,198 +1,35 @@
-// article.controller.ts
-import {
-  Body,
-  Controller,
-  Delete,
-  ForbiddenException,
-  Get,
-  HttpException,
-  HttpStatus,
-  Param,
-  Post,
-  Put,
-  Query,
-  Request,
-} from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Post, Put, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
+import { IsNumber, Min, Max } from 'class-validator';
 import { ArticleService } from './article.service';
 import { CreateArticleDto, ReviewArticleDto } from './create-article.dto';
 import { ArticleStatus } from './article.schema';
-import * as jwt from 'jsonwebtoken';
-
+import { JwtAuthGuard, AuthenticatedUser } from '../user/jwt-auth.guard';
+import { Roles, RolesGuard } from '../user/roles.guard';
+import { UserRole } from '../user/user.schema';
+class RatingDto {
+  @IsNumber() @Min(0.5) @Max(5)
+  score: number;
+}
+const publicFields = new Set(['customId','title','authors','source','pubyear','doi','claim','evidence','status','averageRating','createdAt','updatedAt']);
+function publicArticle(article: any) {
+  const value = typeof article.toObject === 'function' ? article.toObject() : article;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => publicFields.has(key)));
+}
 @Controller('api/articles')
 export class ArticleController {
   constructor(private readonly articleService: ArticleService) {}
-
   @Get('/test')
-  async test() {
-    return 'Article API is working';
-  }
-
+  test() { return 'Article API is working'; }
   @Get('/')
   async findAll(@Query('status') status?: ArticleStatus) {
-    try {
-      return await this.articleService.findAll(status);
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.NOT_FOUND,
-          error: 'No articles found',
-        },
-        HttpStatus.NOT_FOUND,
-        { cause: error },
-      );
-    }
+    if (status && status !== ArticleStatus.APPROVED) throw new ForbiddenException('Only approved articles are public');
+    return (await this.articleService.findAll(status)).map(publicArticle);
   }
-
-  @Get('/:id')
-  async findOne(@Param('id') id: string) {
-    try {
-      const article = await this.articleService.findOne(id);
-      if (!article) {
-        throw new Error('Article not found');
-      }
-      return article;
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.NOT_FOUND,
-          error: 'No Article found',
-        },
-        HttpStatus.NOT_FOUND,
-        { cause: error },
-      );
-    }
-  }
-
-  @Post('/submit')
-  async submitArticle(
-    @Body() createArticleDto: CreateArticleDto,
-    @Request() req,
-  ) {
-    try {
-      if (req.user) {
-        createArticleDto.submitterId = req.user._id;
-        createArticleDto.submitterEmail = req.user.email;
-      }
-
-      const article = await this.articleService.submitArticle(createArticleDto);
-
-      return {
-        message: 'Article submitted successfully',
-        article,
-        notification: 'Email notification will be sent when review is complete',
-      };
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      throw new HttpException(
-        {
-          status: HttpStatus.BAD_REQUEST,
-          error: error.message || 'Unable to submit this article',
-          message: error.message || 'Unable to submit this article',
-        },
-        HttpStatus.BAD_REQUEST,
-        { cause: error },
-      );
-    }
-  }
-
-  @Post(':id/rating')
-  async addRating(
-    @Param('id') id: string,
-    @Body() body: { score: number },
-    @Request() req,
-  ) {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-    }
-
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-    let decodedToken;
-
-    try {
-      decodedToken = jwt.verify(
-        token,
-        process.env.JWT_SECRET || 'default_secret',
-      ) as any;
-    } catch (error) {
-      throw new HttpException(
-        'Unauthorized - Invalid token',
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    // 检查用户角色 - 只有 Searcher 和 Analyst 可以评分
-    const allowedRoles = ['Searcher', 'Analyst'];
-    if (!allowedRoles.includes(decodedToken.role)) {
-      throw new HttpException(
-        'Access denied - Only Searcher and Analyst roles can rate articles',
-        HttpStatus.FORBIDDEN,
-      );
-    }
-
-    // 使用认证用户的ID和评分进行评分
-    return this.articleService.addRating(id, decodedToken.sub, body.score);
-  }
-
-  @Put('/:id')
-  async updateArticle(
-    @Param('id') id: string,
-    @Body() createArticleDto: CreateArticleDto,
-  ) {
-    try {
-      await this.articleService.update(id, createArticleDto);
-      return { message: 'Article updated successfully' };
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.BAD_REQUEST,
-          error: 'Unable to update this article',
-        },
-        HttpStatus.BAD_REQUEST,
-        { cause: error },
-      );
-    }
-  }
-
-  @Post('/:id/review')
-  async reviewArticle(
-    @Param('id') id: string,
-    @Body() reviewData: ReviewArticleDto,
-    @Request() req,
-  ) {
-    try {
-      const reviewerId = req.user?._id || 'system';
-
-      const updatedArticle = await this.articleService.reviewArticle(
-        id,
-        reviewData,
-        reviewerId,
-      );
-
-      return {
-        message: 'Article reviewed successfully',
-        article: updatedArticle,
-      };
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.BAD_REQUEST,
-          error: 'Unable to review this article',
-        },
-        HttpStatus.BAD_REQUEST,
-        { cause: error },
-      );
-    }
-  }
-
   @Get('/search/advanced')
   async searchArticles(
     @Query('keywords') keywords: string,
     @Query('evidenceType') evidenceType?: string,
-    @Query('sortBy') sortBy: string = 'createdAt',
+    @Query('sortBy') sortBy = 'createdAt',
     @Query('sortDirection') sortDirection: 'asc' | 'desc' = 'desc',
     @Query('pubYearFrom') pubYearFrom?: string,
     @Query('pubYearTo') pubYearTo?: string,
@@ -200,84 +37,64 @@ export class ArticleController {
     @Query('status') status?: string,
     @Query('source') source?: string,
   ) {
-    try {
-      return await this.articleService.searchArticles(
-        keywords,
-        evidenceType,
-        sortBy,
-        sortDirection,
-        pubYearFrom,
-        pubYearTo,
-        authors,
-        status as ArticleStatus,
-        source,
-      );
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.BAD_REQUEST,
-          error: 'Unable to search articles',
-        },
-        HttpStatus.BAD_REQUEST,
-        { cause: error },
-      );
-    }
+    if (status && status !== ArticleStatus.APPROVED) throw new ForbiddenException('Only approved articles are public');
+    const articles = await this.articleService.searchArticles(keywords, evidenceType, sortBy, sortDirection, pubYearFrom, pubYearTo, authors, status as ArticleStatus, source);
+    return articles.map(publicArticle);
   }
-
   @Get('/moderator/pending')
-  async getPendingArticles() {
-    try {
-      return await this.articleService.findAll(ArticleStatus.PENDING);
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.NOT_FOUND,
-          error: 'No pending articles found',
-        },
-        HttpStatus.NOT_FOUND,
-        { cause: error },
-      );
-    }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.MODERATOR, UserRole.ADMINISTRATOR)
+  getPendingArticles() { return this.articleService.findAll(ArticleStatus.PENDING); }
+  @Get('/:id')
+  async findOne(@Param('id') id: string) {
+    const article = await this.articleService.findOne(id);
+    if (!article || article.status !== ArticleStatus.APPROVED) throw new NotFoundException('Article not found');
+    return publicArticle(article);
   }
-
+  @Post('/submit')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUBMITTER, UserRole.ADMINISTRATOR)
+  async submitArticle(@Body() dto: CreateArticleDto, @Req() req: { user: AuthenticatedUser }) {
+    dto.submitterId = req.user.sub;
+    dto.submitterEmail = dto.useEmailForNotification === false ? undefined : req.user.email;
+    const article = await this.articleService.submitArticle(dto);
+    return { message: 'Article submitted successfully', article };
+  }
+  @Post(':id/rating')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SEARCHER, UserRole.ANALYST)
+  async addRating(@Param('id') id: string, @Body() body: RatingDto, @Req() req: { user: AuthenticatedUser }) {
+    return publicArticle(await this.articleService.addRating(id, req.user.sub, body.score));
+  }
+  @Put('/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMINISTRATOR)
+  async updateArticle(@Param('id') id: string, @Body() dto: CreateArticleDto) {
+    const { customId, submitterId, submitterEmail, useEmailForNotification, ...metadata } = dto;
+    const updated = await this.articleService.update(id, metadata);
+    if (!updated) throw new NotFoundException('Article not found');
+    return { message: 'Article updated successfully' };
+  }
+  @Post('/:id/review')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.MODERATOR, UserRole.ADMINISTRATOR)
+  async reviewArticle(@Param('id') id: string, @Body() dto: ReviewArticleDto, @Req() req: { user: AuthenticatedUser }) {
+    const article = await this.articleService.reviewArticle(id, dto, req.user.sub);
+    return { message: 'Article reviewed successfully', article };
+  }
   @Post('/check-duplicate')
-  async checkDuplicates(
-    @Body('doi') doi: string,
-    @Body('excludeId') excludeId?: string,
-  ) {
-    try {
-      const similarArticles =
-        await this.articleService.findArticlesBySimilarDOI(doi, excludeId);
-      return similarArticles;
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.BAD_REQUEST,
-          error: 'Unable to check for duplicates',
-        },
-        HttpStatus.BAD_REQUEST,
-        { cause: error },
-      );
-    }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.MODERATOR, UserRole.ADMINISTRATOR)
+  checkDuplicates(@Body('doi') doi: string, @Body('excludeId') excludeId?: string) {
+    if (typeof doi !== 'string' || !doi.trim() || doi.length > 500 || (excludeId !== undefined && typeof excludeId !== 'string')) throw new BadRequestException('Invalid DOI or article ID');
+    return this.articleService.findArticlesBySimilarDOI(doi, excludeId);
   }
-
   @Delete('/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMINISTRATOR)
   async deleteArticle(@Param('id') id: string) {
-    try {
-      const deletedArticle = await this.articleService.delete(id);
-      if (!deletedArticle) {
-        throw new Error('Article not found for deletion');
-      }
-      return deletedArticle;
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.NOT_FOUND,
-          error: 'No such article',
-        },
-        HttpStatus.NOT_FOUND,
-        { cause: error },
-      );
-    }
+    const article = await this.articleService.delete(id);
+    if (!article) throw new NotFoundException('Article not found');
+    return { message: 'Article deleted successfully' };
   }
 }

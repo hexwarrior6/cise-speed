@@ -27,7 +27,7 @@ export class ArticleService {
   async findOne(id: string): Promise<Article> {
     const article = await this.articleModel.findOne({ customId: id }).exec();
     if (!article) {
-      throw new Error('Article not found');
+      throw new NotFoundException('Article not found');
     }
     return article;
   }
@@ -41,7 +41,7 @@ export class ArticleService {
     }
 
     const article = await this.articleModel.findOne({ customId: articleId });
-    if (!article) {
+    if (!article || article.status !== ArticleStatus.APPROVED) {
       throw new NotFoundException('Article not found');
     }
 
@@ -171,7 +171,7 @@ export class ArticleService {
 
   async update(id: string, createArticleDto: CreateArticleDto) {
     return this.articleModel
-      .findOneAndUpdate({ customId: id }, createArticleDto, { new: true })
+      .findOneAndUpdate({ customId: id }, createArticleDto, { new: true, runValidators: true })
       .exec();
   }
 

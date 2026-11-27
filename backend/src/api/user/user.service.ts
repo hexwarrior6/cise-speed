@@ -48,7 +48,7 @@ export class UserService {
 
   async login(loginUserDto: LoginUserDto) {
     // Find user by email
-    const user = await this.userModel.findOne({ email: loginUserDto.email });
+    const user = await this.userModel.findOne({ email: loginUserDto.email }).select('+password');
     if (!user || !user.isActive) {
       throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
     }
@@ -104,7 +104,7 @@ export class UserService {
     }
 
     return this.userModel
-      .findByIdAndUpdate(id, updateUserDto, { new: true })
+      .findByIdAndUpdate(id, updateUserDto, { new: true, runValidators: true })
       .exec();
   }
 

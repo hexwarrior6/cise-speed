@@ -5,7 +5,7 @@ import { UserController } from './user.controller';
 import { UserService } from './user.service';
 import { User, UserSchema } from './user.schema';
 import { JwtModule } from '@nestjs/jwt';
-import { AdminGuard } from './admin.guard';
+import { RolesGuard } from './roles.guard';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 // Helper function to convert time string to seconds
@@ -46,8 +46,10 @@ function parseTimeToSeconds(timeString: string): number {
             ? parseTimeToSeconds(expiresIn)
             : expiresIn;
 
+        const secret = process.env.JWT_SECRET;
+        if (!secret || secret.length < 32) throw new Error('JWT_SECRET must contain at least 32 characters');
         return {
-          secret: process.env.JWT_SECRET || 'default_secret',
+          secret,
           signOptions: {
             expiresIn: expiresInSeconds,
           },
@@ -56,7 +58,7 @@ function parseTimeToSeconds(timeString: string): number {
     }),
   ],
   controllers: [UserController],
-  providers: [UserService, AdminGuard, JwtAuthGuard],
-  exports: [UserService, JwtAuthGuard],
+  providers: [UserService, JwtAuthGuard, RolesGuard],
+  exports: [UserService, JwtModule, JwtAuthGuard, RolesGuard],
 })
 export class UserModule {}
