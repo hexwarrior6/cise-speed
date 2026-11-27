@@ -9,7 +9,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Article, ArticleDocument, ArticleStatus } from './article.schema';
-import { CreateArticleDto, ReviewArticleDto } from './create-article.dto';
+import { ArticleSubmission, CreateArticleDto, ReviewArticleDto } from './create-article.dto';
 import { EmailService } from '../../services/email.service';
 import { randomUUID } from 'node:crypto';
 import { normalizeDoi, escapeRegex } from './doi';
@@ -84,7 +84,7 @@ export class ArticleService {
     return this.articleModel.find(query).sort({ createdAt: 1 }).exec();
   }
 
-  async submitArticle(dto: CreateArticleDto): Promise<Article> {
+  async submitArticle(dto: ArticleSubmission): Promise<Article> {
     const customId = dto.customId?.trim() || randomUUID();
     const doi = normalizeDoi(dto.doi);
     const duplicate = await this.getDuplicateByDOI(doi);

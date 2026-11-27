@@ -81,8 +81,11 @@ describe('SPEED authentication and moderation (MongoDB integration)', () => {
     await http().post('/api/articles/submit').send(article).expect(401);
     await http().post('/api/articles/submit').set('Authorization',token(moderator)).send(article).expect(403);
     await http().post('/api/articles/submit').set('Authorization',token(submitter)).send({...article,submitterEmail:'forged@example.com'}).expect(400);
-    const first = await http().post('/api/articles/submit').set('Authorization',token(submitter)).send({...article,useEmailForNotification:false}).expect(201);
-    const second = await http().post('/api/articles/submit').set('Authorization',token(submitter)).send({...article,doi:'10.1000/test'}).expect(201);
+    const assertCreated = (res: request.Response) => {
+      if (res.status !== 201) throw new Error('Expected 201, received ' + res.status + ': ' + JSON.stringify(res.body));
+    };
+    const first = await http().post('/api/articles/submit').set('Authorization',token(submitter)).send({...article,useEmailForNotification:false}).expect(assertCreated);
+    const second = await http().post('/api/articles/submit').set('Authorization',token(submitter)).send({...article,doi:'10.1000/test'}).expect(assertCreated);
     const a = first.body.article, b = second.body.article;
     expect(a.customId).not.toBe(b.customId);
     expect(a.submitterEmail).toBeUndefined();

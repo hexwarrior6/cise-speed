@@ -68,9 +68,11 @@ export class ArticleController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SUBMITTER, UserRole.ADMINISTRATOR)
   async submitArticle(@Body() dto: CreateArticleDto, @Req() req: { user: AuthenticatedUser }) {
-    dto.submitterId = req.user.sub;
-    dto.submitterEmail = dto.useEmailForNotification === false ? undefined : req.user.email;
-    const article = await this.articleService.submitArticle(dto);
+    const article = await this.articleService.submitArticle({
+      ...dto,
+      submitterId: req.user.sub,
+      submitterEmail: dto.useEmailForNotification === false ? undefined : req.user.email,
+    });
     return { message: 'Article submitted successfully', article };
   }
   @Post(':id/rating')
@@ -83,7 +85,7 @@ export class ArticleController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMINISTRATOR)
   async updateArticle(@Param('id') id: string, @Body() dto: CreateArticleDto) {
-    const { customId, submitterId, submitterEmail, useEmailForNotification, ...metadata } = dto;
+    const { customId, useEmailForNotification, ...metadata } = dto;
     const updated = await this.articleService.update(id, metadata);
     if (!updated) throw new NotFoundException('Article not found');
     return { message: 'Article updated successfully' };

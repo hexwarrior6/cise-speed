@@ -19,9 +19,13 @@ export class CreateArticleDto {
   evidence: EvidenceType;
   @IsOptional() @IsBoolean()
   useEmailForNotification?: boolean;
+}
+
+// Internal service input only: never instantiate or validate this as a request DTO.
+export type ArticleSubmission = CreateArticleDto & {
   submitterId?: string;
   submitterEmail?: string;
-}
+};
 export class ReviewArticleDto {
   @IsIn(['Approved', 'Rejected'])
   status: 'Approved' | 'Rejected';
