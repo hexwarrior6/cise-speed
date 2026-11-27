@@ -30,6 +30,8 @@ export class EmailService {
     });
   }
 
+  isConfigured(): boolean { return !!this.transporter; }
+
   async sendMail(
     to: string,
     subject: string,

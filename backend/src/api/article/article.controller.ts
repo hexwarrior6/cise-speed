@@ -45,6 +45,19 @@ export class ArticleController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.MODERATOR, UserRole.ADMINISTRATOR)
   getPendingArticles() { return this.articleService.findAll(ArticleStatus.PENDING); }
+  @Get('/moderator/notification-issues')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.MODERATOR, UserRole.ADMINISTRATOR)
+  listNotificationIssues() { return this.articleService.listNotificationIssues(); }
+
+  @Post('/:id/notification/retry')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.MODERATOR, UserRole.ADMINISTRATOR)
+  async retryNotification(@Param('id') id: string) {
+    await this.articleService.retryNotification(id);
+    return { message: 'Notification queued for retry' };
+  }
+
   @Get('/:id')
   async findOne(@Param('id') id: string) {
     const article = await this.articleService.findOne(id);

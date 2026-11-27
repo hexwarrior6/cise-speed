@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
 import { ArticleController } from './article.controller';
 import { ArticleService } from './article.service';
+import { NotificationWorker } from './notification.worker';
 import { Article, ArticleSchema } from './article.schema';
 import { EmailModule } from '../../services/email.module';
 import { UserModule } from '../user/user.module';
@@ -16,6 +17,6 @@ import { UserModule } from '../user/user.module';
     EmailModule,
   ],
   controllers: [ArticleController],
-  providers: [ArticleService],
+  providers: [ArticleService, NotificationWorker],
 })
 export class ArticleModule {}

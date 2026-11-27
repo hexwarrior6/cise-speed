@@ -27,7 +27,7 @@ const validationSchema = Yup.object().shape({
     .optional()
     .matches(
       /^[A-Za-z0-9_\-]+$/,
-      "ID can only contain letters, numbers, underscores, and hyphens",
+      { message: "ID can only contain letters, numbers, underscores, and hyphens", excludeEmptyString: true },
     ),
   title: Yup.string()
     .required("Title is required")
@@ -88,25 +88,8 @@ const SubmitterForm: React.FC<SubmitArticleProps> = ({ onSubmitSuccess }) => {
       if (!response.ok) {
         // Try to get error details from response
         const errorData = await response.json().catch(() => ({}));
-        // Use specific error message if available, otherwise generic message
-        const errorMessage =
-          errorData?.error || errorData?.message || "Failed to submit article";
-        // Enhance duplicate ID error message
-        if (errorMessage.includes("already exists")) {
-          // If the error message contains an empty ID, it means the backend tried to process an empty ID
-          // This could happen if the customId field was sent as an empty string
-          if (errorMessage.includes("''")) {
-            // The backend encountered an error with an empty string ID
-            throw new Error(
-              "There was an issue with article ID generation. Please try submitting again.",
-            );
-          } else {
-            // Use the original logic for non-empty IDs
-            throw new Error(
-              `Article with ID '${values.customId}' already exists. Please choose a different ID.`,
-            );
-          }
-        }
+        const message = errorData.message || errorData.error || "Failed to submit article";
+        const errorMessage = Array.isArray(message) ? message.join("; ") : String(message);
         throw new Error(errorMessage);
       }
 

@@ -121,6 +121,8 @@ export class ArticleService {
       reviewComment: reviewData.reviewComment?.trim() || '',
       isDuplicate: !!reviewData.isDuplicate,
       notificationStatus: article.submitterEmail ? 'Pending' : 'Skipped',
+      notificationAttempts: 0,
+      notificationNextAttempt: new Date(),
     };
     if (reviewData.isDuplicate) {
       if (reviewData.duplicateOf === id) throw new BadRequestException('Cannot mark article as duplicate of itself');
@@ -147,16 +149,46 @@ export class ArticleService {
       throw error;
     }
     if (!updatedArticle) throw new HttpException('Article already reviewed', HttpStatus.CONFLICT);
-    if (updatedArticle.submitterEmail) {
-      const sent = await this.sendReviewNotificationEmail(updatedArticle);
-      const notificationStatus = sent ? 'Sent' : 'Failed';
-      // Do not roll back a committed review just because SMTP or notification bookkeeping fails.
-      try {
-        await this.articleModel.updateOne({ customId: id }, { $set: { notificationStatus } }).exec();
-        updatedArticle.notificationStatus = notificationStatus;
-      } catch (error) { console.error('Unable to record notification status', error); }
-    }
     return updatedArticle;
+  }
+
+  // A persistent outbox on each reviewed article. Claim before sending so multiple
+  // workers cannot send the same pending notification concurrently.
+  async processNextNotification(): Promise<boolean> {
+    const now = new Date();
+    const claimed = await this.articleModel.findOneAndUpdate(
+      { status: { $in: [ArticleStatus.APPROVED, ArticleStatus.REJECTED] },
+        submitterEmail: { $exists: true, $nin: ['', null] },
+        notificationStatus: { $in: ['Pending', 'Failed'] },
+        notificationAttempts: { $lt: 3 }, notificationNextAttempt: { $lte: now } },
+      { $set: { notificationStatus: 'Sending', notificationClaimedAt: now }, $inc: { notificationAttempts: 1 } },
+      { new: true, sort: { notificationNextAttempt: 1 } },
+    ).exec();
+    if (!claimed) return false;
+    const sent = await this.sendReviewNotificationEmail(claimed);
+    const attempts = claimed.notificationAttempts || 1;
+    await this.articleModel.updateOne(
+      { _id: claimed._id, notificationStatus: 'Sending', notificationClaimedAt: now },
+      { $set: { notificationStatus: sent ? 'Sent' : 'Failed', notificationNextAttempt: new Date(Date.now() + attempts * 60000) }, $unset: { notificationClaimedAt: 1 } },
+    ).exec();
+    return true;
+  }
+
+  async retryNotification(id: string): Promise<void> {
+    const result = await this.articleModel.findOneAndUpdate(
+      { customId: id, notificationStatus: { $in: ['Failed', 'Sending'] }, $or: [
+        { notificationStatus: 'Failed' },
+        { notificationStatus: 'Sending', notificationClaimedAt: { $lt: new Date(Date.now() - 15 * 60000) } },
+      ] },
+      { $set: { notificationStatus: 'Pending', notificationAttempts: 0, notificationNextAttempt: new Date() }, $unset: { notificationClaimedAt: 1 } },
+    ).exec();
+    if (!result) throw new HttpException('Notification is not eligible for retry', HttpStatus.CONFLICT);
+  }
+
+  async listNotificationIssues() {
+    return this.articleModel.find({ notificationStatus: { $in: ['Failed', 'Sending'] } })
+      .select('customId title status notificationStatus notificationAttempts notificationClaimedAt')
+      .sort({ updatedAt: -1 }).limit(100).exec();
   }
 
   private async sendReviewNotificationEmail(article: Article): Promise<boolean> {

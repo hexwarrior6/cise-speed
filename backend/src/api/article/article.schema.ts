@@ -71,8 +71,17 @@ export class Article {
   @Prop()
   duplicateOf?: string; // Reference to the original article's customId
 
-  @Prop({ enum: ['Pending', 'Sent', 'Failed', 'Skipped'], default: 'Skipped' })
+  @Prop({ enum: ['Pending', 'Sending', 'Sent', 'Failed', 'Skipped'], default: 'Skipped' })
   notificationStatus?: string;
+
+  @Prop({ default: 0 })
+  notificationAttempts?: number;
+
+  @Prop({ type: Date })
+  notificationNextAttempt?: Date;
+
+  @Prop({ type: Date })
+  notificationClaimedAt?: Date;
 }
 
 export const ArticleSchema = SchemaFactory.createForClass(Article);

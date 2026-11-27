@@ -92,6 +92,8 @@ const ModeratorQueue: React.FC = () => {
   };
 
   const handleArticleSelect = (article: Article) => {
+    setError(null);
+    setSelectedTemplate("");
     setSelectedArticle(article);
     setReviewData({
       status: article.isDuplicate ? "Rejected" : "Approved",
@@ -107,6 +109,7 @@ const ModeratorQueue: React.FC = () => {
   const handleReviewSubmit = async () => {
     if (!selectedArticle) return;
 
+    setError(null);
     setSubmittingReview(true);
     try {
       const response = await authFetch(
@@ -126,7 +129,7 @@ const ModeratorQueue: React.FC = () => {
         throw new Error(error.message || "Failed to submit review");
       }
 
-      setReviewSuccess("Article reviewed successfully");
+      setReviewSuccess("Article reviewed successfully. Email notification will be processed separately.");
       setSelectedArticle(null);
       fetchPendingArticles();
 
@@ -504,6 +507,7 @@ const ModeratorQueue: React.FC = () => {
                               type="radio"
                               name="duplicateChoice"
                               value={duplicate.customId}
+                              disabled={duplicate.status !== "Approved" || duplicate.isDuplicate}
                               checked={
                                 reviewData.duplicateOf === duplicate.customId
                               }
@@ -511,6 +515,7 @@ const ModeratorQueue: React.FC = () => {
                                 setReviewData({
                                   ...reviewData,
                                   isDuplicate: true,
+                                  status: "Rejected",
                                   duplicateOf: duplicate.customId,
                                 })
                               }
@@ -520,7 +525,7 @@ const ModeratorQueue: React.FC = () => {
                                 {duplicate.title}
                               </span>
                               <span className={styles.duplicateId}>
-                                ID: {duplicate.customId}
+                                ID: {duplicate.customId} ({duplicate.status})
                               </span>
                             </div>
                           </label>
@@ -571,6 +576,7 @@ const ModeratorQueue: React.FC = () => {
                         type="radio"
                         name="status"
                         value="Approved"
+                        disabled={reviewData.isDuplicate}
                         checked={reviewData.status === "Approved"}
                         onChange={(e) =>
                           setReviewData({
@@ -645,6 +651,8 @@ const ModeratorQueue: React.FC = () => {
                         setReviewData({
                           ...reviewData,
                           isDuplicate: e.target.checked,
+                          status: e.target.checked ? "Rejected" : reviewData.status,
+                          duplicateOf: e.target.checked ? reviewData.duplicateOf : "",
                         })
                       }
                     />
@@ -715,7 +723,7 @@ const ModeratorQueue: React.FC = () => {
                 <div className={styles.submitSection}>
                   <button
                     onClick={handleReviewSubmit}
-                    disabled={submittingReview}
+                    disabled={submittingReview || duplicateCheckLoading || (reviewData.isDuplicate && !reviewData.duplicateOf)}
                     className={styles.submitBtn}
                   >
                     {submittingReview ? (

@@ -105,6 +105,15 @@ describe('SPEED authentication and moderation (MongoDB integration)', () => {
     for (const key of ['submitterId','submitterEmail','reviewerId','reviewComment','ratings','notificationStatus']) expect(pub.body[key]).toBeUndefined();
     const all = await http().get('/api/articles').expect(200);
     expect(all.body).toHaveLength(1);
+    const service = app.get(require('../src/api/article/article.service').ArticleService) as import('../src/api/article/article.service').ArticleService;
+    expect(await service.processNextNotification()).toBe(true);
     expect(email.sendMail).toHaveBeenCalledTimes(1);
+    const failed = await articles.findOne({ notificationStatus: 'Failed' });
+    expect(failed?.notificationAttempts).toBe(1);
+    await http().post('/api/articles/'+failed!.customId+'/notification/retry').set('Authorization',token(submitter)).expect(403);
+    await http().post('/api/articles/'+failed!.customId+'/notification/retry').set('Authorization',token(moderator)).expect(201);
+    email.sendMail.mockResolvedValueOnce(true);
+    expect(await service.processNextNotification()).toBe(true);
+    expect((await articles.findOne({customId:failed!.customId}))?.notificationStatus).toBe('Sent');
   });
 });
