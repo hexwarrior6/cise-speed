@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Formik, Form, Field, ErrorMessage, FormikProps } from "formik";
+import { Formik, Form, Field, ErrorMessage, FormikProps, FormikHelpers } from "formik";
 import * as Yup from "yup";
 import { EvidenceType } from "../types/article";
+import { useAuth } from "../contexts/AuthContext";
 import { authFetch } from "@/utils/auth.utils";
 
 interface ArticleFormData {
@@ -38,10 +39,7 @@ const validationSchema = Yup.object().shape({
     .matches(/^\d{4}$/, "Publication year must be 4 digits"),
   doi: Yup.string()
     .required("DOI is required")
-    .matches(
-      /^10\.\d{4,}(?:\.\d+)*\/[-._;()\/\w]+$/,
-      "Please enter a valid DOI",
-    ),
+    .test("doi", "Please enter a valid DOI", value => !!value && /^10\.\d{4,}(?:\.\d+)*\/\S+$/i.test(value.trim().replace(/^(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*)/i, ""))),
   claim: Yup.string()
     .required("Claim is required")
     .min(10, "Claim must be at least 10 characters long"),
@@ -50,11 +48,12 @@ const validationSchema = Yup.object().shape({
 });
 
 const SubmitterForm: React.FC<SubmitArticleProps> = ({ onSubmitSuccess }) => {
+  const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const handleSubmit = async (values: ArticleFormData) => {
+  const handleSubmit = async (values: ArticleFormData, helpers: FormikHelpers<ArticleFormData>) => {
     setSubmitting(true);
     setError(null);
     setSuccess(null);
@@ -115,6 +114,7 @@ const SubmitterForm: React.FC<SubmitArticleProps> = ({ onSubmitSuccess }) => {
       setSuccess(data.message);
       onSubmitSuccess?.(data.article);
 
+      helpers.resetForm();
       // Reset form after successful submission
       setTimeout(() => {
         setSuccess(null);

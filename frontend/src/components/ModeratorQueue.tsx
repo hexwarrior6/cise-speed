@@ -1,10 +1,11 @@
 import { authFetch } from "@/utils/auth.utils";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Article, ReviewData } from "../types/article";
 import { commentTemplates, CommentTemplate } from "../utils/commentTemplates";
 import styles from "../styles/ModeratorQueue.module.scss";
 
 const ModeratorQueue: React.FC = () => {
+  const duplicateRequest = useRef(0);
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +56,8 @@ const ModeratorQueue: React.FC = () => {
   };
 
   const checkForDuplicates = async (doi: string, currentId?: string) => {
-    if (!doi) return;
+    const request = ++duplicateRequest.current;
+    if (!doi) { setDuplicateCheckLoading(false); return; }
 
     setDuplicateCheckLoading(true);
     try {
@@ -79,13 +81,13 @@ const ModeratorQueue: React.FC = () => {
       }
 
       const data = await response.json();
-      setDuplicateCheckResults(data);
+      if (request === duplicateRequest.current) setDuplicateCheckResults(data);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to check duplicates",
       );
     } finally {
-      setDuplicateCheckLoading(false);
+      if (request === duplicateRequest.current) setDuplicateCheckLoading(false);
     }
   };
 
